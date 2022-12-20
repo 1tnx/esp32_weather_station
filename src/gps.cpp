@@ -2,8 +2,6 @@
 
 #define GPS_SERIAL Serial1
 
-GPS::GPS() {}
-
 void GPS::init() {
     GPS_SERIAL.begin(9600);
 }
@@ -32,8 +30,4 @@ double GPS::getLongitude() {
 
 unsigned long GPS::getLastUpdate() {
     return lastUpdate;
-}
-
-void GPS::setUpdateInterval(unsigned long interval) {
-    updateInterval = interval;
 }

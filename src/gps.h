@@ -8,11 +8,12 @@ class GPS {
     unsigned long updateInterval;
 
     public:
-        GPS();
+        GPS(unsigned long interval) {
+            updateInterval = interval;
+        }
         void init();
         void update();
         double getLatitude();
         double getLongitude();
         unsigned long getLastUpdate();
-        void setUpdateInterval(unsigned long interval);
 };
