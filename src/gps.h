@@ -15,5 +15,4 @@ class GPS {
         void update();
         double getLatitude();
         double getLongitude();
-        unsigned long getLastUpdate();
 };

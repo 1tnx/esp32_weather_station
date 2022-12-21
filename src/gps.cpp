@@ -27,7 +27,3 @@ double GPS::getLatitude() {
 double GPS::getLongitude() {
     return longitude;
 }
-
-unsigned long GPS::getLastUpdate() {
-    return lastUpdate;
-}

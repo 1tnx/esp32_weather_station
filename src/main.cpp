@@ -1,14 +1,18 @@
 #include <Arduino.h>
 #include <lmic.h>
 #include <hal/hal.h>
+#include <SPI.h>
+#include <Wire.h>
 
 #include "gps.h"
 #include "battery.h"
+#include "lux_sensor.h"
+#include "gas_sensor.h"
 
-// GPS update interval in milliseconds
+// GPS update interval
 #define GPS_INTERVAL 1000 * 3600 // 1 hour
 
-// Battery
+// Battery settings
 #define BATTERY_PIN             A0
 #define BATTERY_R1              100 * 1000
 #define BATTERY_R2              10 * 1000
@@ -16,33 +20,39 @@
 #define BATTERY_MIN_VOLTAGE     3.7
 #define BATTERY_MAX_VOLTAGE     4.2
 
-
 // RFM95W pins
 #define PIN_LMIC_NSS      8
 #define PIN_LMIC_RXTX     LMIC_UNUSED_PIN
 #define PIN_LMIC_RST      LMIC_UNUSED_PIN
-#define PIN_LMIC_DIO0     1
-#define PIN_LMIC_DIO1     1
+#define PIN_LMIC_DIO0     14
+#define PIN_LMIC_DIO1     13
 #define PIN_LMIC_DIO2     LMIC_UNUSED_PIN
 
+// sensor settings
+#define SENSOR_INTERVAL 1000 * 60 * 5 // 5 minutes
+
+// I2C pins
+#define I2C_SDA 6
+#define I2C_SCL 7
+
+GPS gps(GPS_INTERVAL);
+Battery battery(BATTERY_PIN, BATTERY_R1, BATTERY_R2, BATTERY_MAX_VOLTAGE, BATTERY_MIN_VOLTAGE, BATTERY_INTERVAL);
+BME688 gas(SENSOR_INTERVAL);
+LuxSensor lux(SENSOR_INTERVAL);
 
 // This be in little endian format
 static const u1_t PROGMEM APPEUI[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 void os_getArtEui(u1_t *buf) { memcpy_P(buf, APPEUI, 8); }
 
 // This should also be in little endian format, see above.
-static const u1_t PROGMEM DEVEUI[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const u1_t PROGMEM DEVEUI[8] = {0x9B, 0x74, 0x05, 0xD0, 0x7E, 0xD5, 0xB3, 0x70};
 void os_getDevEui(u1_t *buf) { memcpy_P(buf, DEVEUI, 8); }
 
 // This key should be in big endian format
-static const u1_t PROGMEM APPKEY[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const u1_t PROGMEM APPKEY[16] = {0xBB, 0x32, 0x31, 0xC6, 0xCD, 0x36, 0x68, 0x3E, 0xD6, 0x4E, 0x48, 0x80, 0x7D, 0x8E, 0x2E, 0x83};
 void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 
-
-#define PAYLOAD_SIZE     7
-
-GPS gps(GPS_INTERVAL);
-Battery battery(BATTERY_PIN, BATTERY_R1, BATTERY_R2, BATTERY_MAX_VOLTAGE, BATTERY_MIN_VOLTAGE, BATTERY_INTERVAL);
+#define PAYLOAD_SIZE     11
 
 static osjob_t sendjob;
 static osjob_t doWorkJob;
@@ -259,18 +269,34 @@ void processWork(ostime_t doWorkJobTimeStamp)
         {
             uint8_t payload[PAYLOAD_SIZE] = {0};
 
-            float temperature = 50.1; // dht.getTemperature();
-            float humidity = 50.2; // dht.getHumidity();
-            double longitude = 0.0; // gps.getLongitude();
-            double latitude = 0.0;  // gps.getLatitude();
+            // update sensor data
+            gps.update();
+            gas.update();
+            lux.update();
+            battery.update();
+
+            // read sensor data
+            float temperature = gas.getTemperature();
+            float humidity = gas.getHumidity();
+            float pressure = gas.getPressure();
+            float voltage = battery.getVoltage();
+            float light = lux.getLux();
+            double longitude = gps.getLongitude();
+            double latitude = gps.getLatitude();
+            
 
             payload[0] = (uint8_t)temperature;
             payload[1] = (uint8_t)((temperature - (int)temperature) * 10);
             payload[2] = (uint8_t)humidity;
-            payload[3] = (uint8_t)latitude;
-            payload[4] = (uint8_t)((latitude - (int)latitude) * 100);
-            payload[5] = (uint8_t)longitude;
-            payload[6] = (uint8_t)((longitude - (int)longitude) * 100);
+            payload[3] = (uint8_t)pressure;
+            payload[4] = (uint8_t)((pressure - (int)pressure) * 10);
+            payload[5] = (uint8_t)voltage;
+            payload[6] = (uint8_t)((voltage - (int)voltage) * 10);
+            payload[7] = (uint8_t)light;
+            payload[8] = (uint8_t)latitude;
+            payload[9] = (uint8_t)((latitude - (int)latitude) * 100);
+            payload[10] = (uint8_t)longitude;
+            payload[11] = (uint8_t)((longitude - (int)longitude) * 100);
             Serial.println("here");
 
             for (int i = 0; i < PAYLOAD_SIZE; i++)
@@ -306,6 +332,8 @@ static void doWorkCallback(osjob_t *job)
 
 void setup() {
     delay(5000);
+
+    Wire.begin(I2C_SDA, I2C_SCL);
     
     Serial.begin(9600);
     Serial.println(F("Starting"));
@@ -323,6 +351,8 @@ void setup() {
 
     gps.init();
 	battery.init();
+    gas.init();
+    lux.init();
 
     delay(2000);
     // Start job (sending automatically starts OTAA too)
