@@ -10,7 +10,7 @@
 #include "gas_sensor.h"
 
 // GPS update interval
-#define GPS_INTERVAL 1000 * 3600 // 1 hour
+#define GPS_INTERVAL 5000  // 5 seconds
 
 // Battery settings
 #define BATTERY_PIN             A0
@@ -24,12 +24,12 @@
 #define PIN_LMIC_NSS      8
 #define PIN_LMIC_RXTX     LMIC_UNUSED_PIN
 #define PIN_LMIC_RST      LMIC_UNUSED_PIN
-#define PIN_LMIC_DIO0     14
-#define PIN_LMIC_DIO1     13
+#define PIN_LMIC_DIO0     20
+#define PIN_LMIC_DIO1     19
 #define PIN_LMIC_DIO2     LMIC_UNUSED_PIN
 
 // sensor settings
-#define SENSOR_INTERVAL 1000 * 60 * 5 // 5 minutes
+#define SENSOR_INTERVAL 5000 // 5 second
 
 // I2C pins
 #define I2C_SDA 6
@@ -45,14 +45,14 @@ static const u1_t PROGMEM APPEUI[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 void os_getArtEui(u1_t *buf) { memcpy_P(buf, APPEUI, 8); }
 
 // This should also be in little endian format, see above.
-static const u1_t PROGMEM DEVEUI[8] = {0x9B, 0x74, 0x05, 0xD0, 0x7E, 0xD5, 0xB3, 0x70};
+static const u1_t PROGMEM DEVEUI[8] = {0xAD, 0x8C, 0x05, 0xD0, 0x7E, 0xD5, 0xB3, 0x70};
 void os_getDevEui(u1_t *buf) { memcpy_P(buf, DEVEUI, 8); }
 
 // This key should be in big endian format
-static const u1_t PROGMEM APPKEY[16] = {0xBB, 0x32, 0x31, 0xC6, 0xCD, 0x36, 0x68, 0x3E, 0xD6, 0x4E, 0x48, 0x80, 0x7D, 0x8E, 0x2E, 0x83};
+static const u1_t PROGMEM APPKEY[16] = {0xDD, 0x85, 0xD2, 0x5E, 0xF2, 0x3D, 0x81, 0xFF, 0x03, 0xA2, 0x1E, 0x2B, 0x33, 0x8D, 0x63, 0xD6};
 void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 
-#define PAYLOAD_SIZE     11
+#define PAYLOAD_SIZE     12
 
 static osjob_t sendjob;
 static osjob_t doWorkJob;
@@ -88,20 +88,64 @@ void do_send(osjob_t* j){
         Serial.println(F("OP_TXRXPEND, not sending"));
     } else {
 
-        float temperature = 26.0;
-        float humidity = 50.0;
-        double longitude = 4.45;
-        double latitude = 50.84;
+        // update sensor data
+        gps.update();
+        gas.update();
+        lux.update();
+        battery.update();
+
+        // read sensor data
+        float temperature = gas.getTemperature();
+        float humidity = gas.getHumidity();
+        float pressure = gas.getPressure();
+        float voltage = battery.getVoltage();
+        float light = lux.getLux();
+        double longitude = gps.getLongitude();
+        double latitude = gps.getLatitude();
  
         uint8_t payload[PAYLOAD_SIZE] = { 0 };
 
+        // Serial.print("Temperature: ");
+        // Serial.println(temperature);
+        // Serial.print("Humidity: ");
+        // Serial.println(humidity);
+        // Serial.print("Pressure: ");
+        // Serial.println(pressure);
+        // Serial.print("Voltage: ");
+        // Serial.println(voltage);
+        // Serial.print("Light: ");
+        // Serial.println(light);
+        // Serial.print("Latitude: ");
+        // Serial.println(latitude);
+        // Serial.print("Longitude: ");
+        // Serial.println(longitude);
+        
+        // prepare payload
         payload[0] = (uint8_t)temperature;
-        payload[1] = (uint8_t)((temperature -(int)temperature) * 10);
+        payload[1] = (uint8_t)((temperature - (int)temperature) * 10);
         payload[2] = (uint8_t)humidity;
-        payload[3] = (uint8_t)latitude;
-        payload[4] = (uint8_t)((latitude - (int)latitude) * 100);
-        payload[5] = (uint8_t)longitude;
-        payload[6] = (uint8_t)((longitude - (int)longitude) * 100);
+        payload[3] = (uint8_t)pressure;
+        payload[4] = (uint8_t)((pressure - (int)pressure) * 10);
+        payload[5] = (uint8_t)voltage;
+        payload[6] = (uint8_t)((voltage - (int)voltage) * 10);
+        payload[7] = (uint8_t)light;
+        payload[8] = (uint8_t)latitude;
+        payload[9] = (uint8_t)((latitude - (int)latitude) * 10);
+        payload[10] = (uint8_t)longitude;
+        payload[11] = (uint8_t)((longitude - (int)longitude) * 10);
+        // payload[1] = (uint8_t)((temperature - (int)temperature) * 10);
+        // payload[2] = (uint8_t)humidity;
+        // payload[3] = (uint8_t)((humidity - (int)humidity) * 10);
+        // payload[4] = (uint8_t)pressure;
+        // payload[5] = (uint8_t)((pressure - (int)pressure) * 10);
+        // payload[6] = (uint8_t)voltage;
+        // payload[7] = (uint8_t)((voltage - (int)voltage) * 10);
+        // payload[8] = (uint8_t)light;
+        // payload[9] = (uint8_t)((light - (int)light) * 10);
+        // payload[10] = (uint8_t)latitude;
+        // payload[11] = (uint8_t)((latitude - (int)latitude) * 100);
+        // payload[12] = (uint8_t)longitude;
+        // payload[13] = (uint8_t)((longitude - (int)longitude) * 100);
 
         for (int i = 0; i < PAYLOAD_SIZE; i++) {
             Serial.print(payload[i], HEX);
@@ -294,10 +338,9 @@ void processWork(ostime_t doWorkJobTimeStamp)
             payload[6] = (uint8_t)((voltage - (int)voltage) * 10);
             payload[7] = (uint8_t)light;
             payload[8] = (uint8_t)latitude;
-            payload[9] = (uint8_t)((latitude - (int)latitude) * 100);
+            payload[9] = (uint8_t)((latitude - (int)latitude) * 10);
             payload[10] = (uint8_t)longitude;
-            payload[11] = (uint8_t)((longitude - (int)longitude) * 100);
-            Serial.println("here");
+            payload[11] = (uint8_t)((longitude - (int)longitude) * 10);
 
             for (int i = 0; i < PAYLOAD_SIZE; i++)
             {
@@ -342,6 +385,8 @@ void setup() {
     os_init();
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
+
+    LMIC_setClockError(MAX_CLOCK_ERROR * 1 / 100);
 
     LMIC_setLinkCheckMode(0);
     LMIC_setDrTxpow(DR_SF7,14);
