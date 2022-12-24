@@ -3,6 +3,8 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_GFX.h>
 
 #include "gps.h"
 #include "battery.h"
@@ -28,8 +30,17 @@
 #define PIN_LMIC_DIO1     19
 #define PIN_LMIC_DIO2     LMIC_UNUSED_PIN
 
+// OLED settings
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1
+#define SCREEN_ADDRESS 0x3C
+
 // sensor settings
 #define SENSOR_INTERVAL 5000 // 5 second
+
+#define uS_TO_S_FACTOR 1000000
+#define TIME_TO_SLEEP  30
 
 // I2C pins
 #define I2C_SDA 6
@@ -39,6 +50,7 @@ GPS gps(GPS_INTERVAL);
 Battery battery(BATTERY_PIN, BATTERY_R1, BATTERY_R2, BATTERY_MAX_VOLTAGE, BATTERY_MIN_VOLTAGE, BATTERY_INTERVAL);
 BME688 gas(SENSOR_INTERVAL);
 LuxSensor lux(SENSOR_INTERVAL);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // This be in little endian format
 static const u1_t PROGMEM APPEUI[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -80,6 +92,39 @@ void printHex2(unsigned v) {
     if (v < 16)
         Serial.print('0');
     Serial.print(v, HEX);
+}
+
+void oledDisplay(int size, int x, int y, float value, String unit)
+{
+    int charLen = 12;
+    int xo = x + charLen * 3.2;
+    int xunit = x + charLen * 3.6;
+    int xval = x;
+    display.setTextSize(size);
+    display.setTextColor(WHITE);
+
+    if (unit == "%")
+    {
+        display.setCursor(x, y);
+        display.print(value, 0);
+        display.print(unit);
+    }
+    else
+    {
+        if (value > 99)
+        {
+            xval = x;
+        }
+        else
+        {
+            xval = x + charLen;
+        }
+        display.setCursor(xval, y);
+        display.print(value, 0);
+        display.drawCircle(xo, y + 2, 2, WHITE); // print degree symbols (  )
+        display.setCursor(xunit, y);
+        display.print(unit);
+    }
 }
 
 void do_send(osjob_t* j){
@@ -133,19 +178,6 @@ void do_send(osjob_t* j){
         payload[9] = (uint8_t)((latitude - (int)latitude) * 10);
         payload[10] = (uint8_t)longitude;
         payload[11] = (uint8_t)((longitude - (int)longitude) * 10);
-        // payload[1] = (uint8_t)((temperature - (int)temperature) * 10);
-        // payload[2] = (uint8_t)humidity;
-        // payload[3] = (uint8_t)((humidity - (int)humidity) * 10);
-        // payload[4] = (uint8_t)pressure;
-        // payload[5] = (uint8_t)((pressure - (int)pressure) * 10);
-        // payload[6] = (uint8_t)voltage;
-        // payload[7] = (uint8_t)((voltage - (int)voltage) * 10);
-        // payload[8] = (uint8_t)light;
-        // payload[9] = (uint8_t)((light - (int)light) * 10);
-        // payload[10] = (uint8_t)latitude;
-        // payload[11] = (uint8_t)((latitude - (int)latitude) * 100);
-        // payload[12] = (uint8_t)longitude;
-        // payload[13] = (uint8_t)((longitude - (int)longitude) * 100);
 
         for (int i = 0; i < PAYLOAD_SIZE; i++) {
             Serial.print(payload[i], HEX);
@@ -153,8 +185,19 @@ void do_send(osjob_t* j){
         }
         Serial.println();
 
+        oledDisplay(3,5,28,humidity,"%");
+        oledDisplay(2,70,16,temperature,"C");
+        display.display();
+
         LMIC_setTxData2(1, payload, PAYLOAD_SIZE, 0);
         Serial.println(F("Packet queued"));
+        
+        Serial.flush();
+        display.clearDisplay();
+        display.print("going to sleep");
+        display.display();
+        delay(1000);
+        esp_deep_sleep_start();
     }
     // Next TX is scheduled after TX_COMPLETE event.
 }
@@ -327,6 +370,14 @@ void processWork(ostime_t doWorkJobTimeStamp)
             float light = lux.getLux();
             double longitude = gps.getLongitude();
             double latitude = gps.getLatitude();
+
+            while (isnan(longitude) || isnan(latitude))
+            {
+                gps.update();
+                longitude = gps.getLongitude();
+                latitude = gps.getLatitude();
+                delay(500);
+            }
             
 
             payload[0] = (uint8_t)temperature;
@@ -377,7 +428,16 @@ void setup() {
     delay(5000);
 
     Wire.begin(I2C_SDA, I2C_SCL);
-    
+
+    if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+    }
+    display.clearDisplay();
+    display.display();
+
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+
     Serial.begin(9600);
     Serial.println(F("Starting"));
 
