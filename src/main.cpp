@@ -147,6 +147,15 @@ void do_send(osjob_t* j){
         float light = lux.getLux();
         double longitude = gps.getLongitude();
         double latitude = gps.getLatitude();
+
+        // wait for gps to get a fix
+        // while (isnan(longitude) || isnan(latitude))
+        //     {
+        //         gps.update();
+        //         longitude = gps.getLongitude();
+        //         latitude = gps.getLatitude();
+        //         delay(500);
+        //     }
  
         uint8_t payload[PAYLOAD_SIZE] = { 0 };
 
@@ -185,6 +194,7 @@ void do_send(osjob_t* j){
         }
         Serial.println();
 
+        // update display, todo: modify function
         oledDisplay(3,5,28,humidity,"%");
         oledDisplay(2,70,16,temperature,"C");
         display.display();
@@ -193,10 +203,9 @@ void do_send(osjob_t* j){
         Serial.println(F("Packet queued"));
         
         Serial.flush();
-        display.clearDisplay();
-        display.print("going to sleep");
-        display.display();
-        delay(1000);
+        //display.clearDisplay();
+        //display.print("going to sleep");
+        //display.display();
         esp_deep_sleep_start();
     }
     // Next TX is scheduled after TX_COMPLETE event.
@@ -324,106 +333,6 @@ void onEvent (ev_t ev) {
     }
 }
 
-void processWork(ostime_t doWorkJobTimeStamp)
-{
-    // This function is called from the doWorkCallback()
-    // callback function when the doWork job is executed.
-
-    // Uses globals: payloadBuffer and LMIC data structure.
-
-    // This is where the main work is performed like
-    // reading sensor and GPS data and schedule uplink
-    // messages if anything needs to be transmitted.
-
-    // Skip processWork if using OTAA and still joining.
-    if (LMIC.devaddr == 0)
-    {
-        // For simplicity LMIC-node will try to send an uplink
-        // message every time processWork() is executed.
-
-        // Schedule uplink message if possible
-        if (LMIC.opmode & OP_TXRXPEND)
-        {
-// TxRx is currently pending, do not send.
-#ifdef USE_SERIAL
-            printEvent(timestamp, "Uplink not scheduled because TxRx pending", PrintTarget::Serial);
-#endif
-#ifdef USE_DISPLAY
-            printEvent(timestamp, "UL not scheduled", PrintTarget::Display);
-#endif
-        }
-        else
-        {
-            uint8_t payload[PAYLOAD_SIZE] = {0};
-
-            // update sensor data
-            gps.update();
-            gas.update();
-            lux.update();
-            battery.update();
-
-            // read sensor data
-            float temperature = gas.getTemperature();
-            float humidity = gas.getHumidity();
-            float pressure = gas.getPressure();
-            float voltage = battery.getVoltage();
-            float light = lux.getLux();
-            double longitude = gps.getLongitude();
-            double latitude = gps.getLatitude();
-
-            while (isnan(longitude) || isnan(latitude))
-            {
-                gps.update();
-                longitude = gps.getLongitude();
-                latitude = gps.getLatitude();
-                delay(500);
-            }
-            
-
-            payload[0] = (uint8_t)temperature;
-            payload[1] = (uint8_t)((temperature - (int)temperature) * 10);
-            payload[2] = (uint8_t)humidity;
-            payload[3] = (uint8_t)pressure;
-            payload[4] = (uint8_t)((pressure - (int)pressure) * 10);
-            payload[5] = (uint8_t)voltage;
-            payload[6] = (uint8_t)((voltage - (int)voltage) * 10);
-            payload[7] = (uint8_t)light;
-            payload[8] = (uint8_t)latitude;
-            payload[9] = (uint8_t)((latitude - (int)latitude) * 10);
-            payload[10] = (uint8_t)longitude;
-            payload[11] = (uint8_t)((longitude - (int)longitude) * 10);
-
-            for (int i = 0; i < PAYLOAD_SIZE; i++)
-            {
-                Serial.print(payload[i], HEX);
-                Serial.print(", ");
-            }
-            Serial.println();
-
-            LMIC_setTxData2(1, payload, PAYLOAD_SIZE, 0);
-        }
-    }
-}
-
-static void doWorkCallback(osjob_t *job)
-{
-    // Event hander for doWorkJob. Gets called by the LMIC scheduler.
-    // The actual work is performed in function processWork() which is called below.
-
-    ostime_t timestamp = os_getTime();
-#ifdef USE_SERIAL
-    serial.println();
-    printEvent(timestamp, "doWork job started", PrintTarget::Serial);
-#endif
-
-    // Do the work that needs to be performed.
-    processWork(timestamp);
-
-    // This job must explicitly reschedule itself for the next run.
-    ostime_t startAt = timestamp + sec2osticks((int64_t)doWorkIntervalSeconds);
-    os_setTimedCallback(&doWorkJob, startAt, doWorkCallback);
-}
-
 void setup() {
     delay(5000);
 
@@ -450,12 +359,12 @@ void setup() {
 
     LMIC_setLinkCheckMode(0);
     LMIC_setDrTxpow(DR_SF7,14);
-    // os_clearCallback(&doWorkJob);
+    
     // os_setCallback(&doWorkJob, doWorkCallback);
     delay(1000); 
 
     gps.init();
-	battery.init();
+    battery.init();
     gas.init();
     lux.init();
 
