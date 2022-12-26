@@ -94,47 +94,37 @@ void printHex2(unsigned v) {
     Serial.print(v, HEX);
 }
 
-void oledDisplay(int size, int x, int y, String magnitude, float value, String unit)
+void oledDisplay(int size, int x, int y, float value, String unit)
 {
     int charLen = 12;
-    // int xo = x + charLen * 3.2;
-    // int xunit = x + charLen * 3.6;
-    // int xval = x;
+    int xo = x + charLen * 3.2;
+    int xunit = x + charLen * 3.6;
+    int xval = x;
     display.setTextSize(size);
     display.setTextColor(WHITE);
 
-    if (unit == "C")
+    if (unit == "%")
     {
-        
-        //xval = x + charLen;
-        //display.setCursor(xval, y);
         display.setCursor(x, y);
-        display.print(magnitude);
         display.print(value, 0);
-        display.drawCircle(x+95, y + 2, 2, WHITE); // print degree symbols (  )
-        display.setCursor(x+100, y);
-        display.print(unit);  
+        display.print(unit);
     }
     else
     {
-        
-        display.setCursor(x, y);
-        display.print(magnitude);
+        if (value > 99)
+        {
+            xval = x;
+        }
+        else
+        {
+            xval = x + charLen;
+        }
+        display.setCursor(xval, y);
         display.print(value, 0);
+        display.drawCircle(xo, y + 2, 2, WHITE); // print degree symbols (  )
+        display.setCursor(xunit, y);
         display.print(unit);
-       
     }
-        display.display();
-
-}
-void Lcd_display()
-{
-	oledDisplay(1,0,0,"Humidity: ", humidity," %");
-        oledDisplay(1,0,10,"Temperature: ",temperature,"C");
-        oledDisplay(1,0,20,"Luminosity: ", humidity," Lux");
-        oledDisplay(1,0,30,"Pressure: ", pressure," hPa");
-        oledDisplay(1,0,40,"Longitude: ", longitude," ");
-        oledDisplay(1,0,50,"Latitude: ", latitude,"");
 }
 
 void do_send(osjob_t* j){
@@ -205,7 +195,9 @@ void do_send(osjob_t* j){
         Serial.println();
 
         // update display, todo: modify function
-      	Lcd_display();
+        oledDisplay(3,5,28,humidity,"%");
+        oledDisplay(2,70,16,temperature,"C");
+        display.display();
 
         LMIC_setTxData2(1, payload, PAYLOAD_SIZE, 0);
         Serial.println(F("Packet queued"));
@@ -351,12 +343,7 @@ void setup() {
     for(;;); // Don't proceed, loop forever
     }
     display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    display.setCursor(3, 3);
-    display.print("   WEATHER STATION                                                  Starting...");
     display.display();
-    delay(5000);
 
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
 
